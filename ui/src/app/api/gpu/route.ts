@@ -93,6 +93,173 @@ async function getMacGpuInfo(): Promise<MacGpuResult | null> {
   }
 }
 
+// 新增：检查 AMD SMI 工具是否可用，返回可用的命令名
+async function getAmdSmiCommand(): Promise<string | null> {
+  try {
+    await execAsync('which amd-smi');
+    return 'amd-smi';
+  } catch {
+    try {
+      await execAsync('which rocm-smi');
+      return 'rocm-smi';
+    } catch {
+      return null;
+    }
+  }
+}
+
+// 新增：获取 AMD GPU 信息
+async function getAmdGpuStats(command: string) {
+  try {
+    let stdout: string;
+    
+    if (command === 'amd-smi') {
+      // amd-smi 支持 JSON 输出
+      const result = await execAsync(
+        'amd-smi static --json && echo "___SEPARATOR___" && amd-smi metric --json',
+        { timeout: 10000 }
+      );
+      stdout = result.stdout;
+    } else {
+      // rocm-smi 支持 JSON 输出
+      const result = await execAsync(
+        'rocm-smi --showproductname --json',
+        { timeout: 10000 }
+      );
+      stdout = result.stdout;
+    }
+
+    if (command === 'amd-smi') {
+      const parts = stdout.split('___SEPARATOR___');
+      if (parts.length !== 2) {
+        return [];
+      }
+
+      const staticData = JSON.parse(parts[0].trim());
+      const metricData = JSON.parse(parts[1].trim());
+
+      return staticData.gpu_data.map((gpu: any) => {
+        const metrics =
+          metricData.gpu_data.find(
+            (m: any) => String(m.gpu) === String(gpu.gpu)
+          ) || {};
+
+        const memTotal =
+          parseFloat(metrics.mem_usage?.total_vram?.value) || 0;
+
+        const memUsed =
+          parseFloat(metrics.mem_usage?.used_vram?.value) || 0;
+
+        const memFree =
+          parseFloat(metrics.mem_usage?.free_visible_vram?.value) || 0;
+
+        return {
+          index: Number(gpu.gpu),
+
+          name:
+            gpu.asic?.market_name ||
+            gpu.asic?.device_name ||
+            'AMD GPU',
+
+          driverVersion:
+            gpu.driver?.version ||
+            'ROCm',
+
+          temperature: Math.round(
+            parseFloat(
+              metrics.temperature?.hotspot?.value ??
+              metrics.temperature?.edge?.value ??
+              0
+            )
+          ),
+
+          utilization: {
+            gpu: parseFloat(
+              metrics.usage?.gfx_activity?.value
+            ) || 0,
+
+            memory:
+              memTotal > 0
+                ? Math.round((memUsed / memTotal) * 100)
+                : 0,
+          },
+
+          memory: {
+            total: Math.round(memTotal),
+            free: Math.round(memFree),
+            used: Math.round(memUsed),
+          },
+
+          power: {
+            draw:
+              parseFloat(
+                metrics.power?.socket_power?.value
+              ) || 0,
+
+            limit:
+              parseFloat(
+                gpu.limit?.max_power?.value ??
+                gpu.limit?.ppt0?.max_power_limit?.value ??
+                0
+              ) || 0,
+          },
+
+          clocks: {
+            graphics:
+              parseInt(
+                metrics.clock?.gfx_0?.clk?.value
+              ) || 0,
+
+            memory:
+              parseInt(
+                metrics.clock?.mem_0?.clk?.value
+              ) || 0,
+          },
+
+          fan: {
+            speed:
+              parseFloat(
+                metrics.fan?.usage?.value
+              ) || 0,
+          },
+        };
+      });
+    } else {
+      // rocm-smi 格式解析
+      const data = JSON.parse(stdout);
+      return Object.entries(data).map(([key, value]: [string, any], index) => ({
+        index,
+        name: value['Card series'] || 'AMD GPU',
+        driverVersion: value['Driver version'] || 'ROCm',
+        temperature: Math.round(parseFloat(value['Temperature (Sensor edge)'] || 0)),
+        utilization: {
+          gpu: parseFloat(value['GPU use (%)'] || 0),
+          memory: parseFloat(value['GPU memory use (%)'] || 0),
+        },
+        memory: {
+          total: 0, // rocm-smi 不提供总内存，需要从其他方式获取
+          free: 0,
+          used: 0,
+        },
+        power: {
+          draw: parseFloat(value['Average Graphics Package Power (W)'] || 0),
+          limit: 0,
+        },
+        clocks: {
+          graphics: parseInt(value['mclk'] || 0),
+          memory: parseInt(value['sclk'] || 0),
+        },
+        fan: {
+          speed: parseFloat(value['Fan speed (%)'] || 0),
+        },
+      }));
+    }
+  } catch (error) {
+    console.error('Failed to get AMD GPU stats:', error);
+    return [];
+  }
+}
+
 export async function GET() {
   try {
     // Get platform
@@ -138,6 +305,19 @@ export async function GET() {
 
     // Check if nvidia-smi is available
     const hasNvidiaSmi = await checkNvidiaSmi(isWindows);
+    
+    // 新增：检查 AMD GPU
+    const amdCommand = !isWindows && !hasNvidiaSmi ? await getAmdSmiCommand() : null;
+
+    if (amdCommand) {
+      const gpuStats = await getAmdGpuStats(amdCommand);
+      return NextResponse.json({
+        hasNvidiaSmi: false,
+        isMac: false,
+        hasAmdGpu: true,
+        gpus: gpuStats,
+      });
+    }
 
     if (!hasNvidiaSmi) {
       return NextResponse.json({
@@ -156,7 +336,7 @@ export async function GET() {
       gpus: gpuStats,
     });
   } catch (error) {
-    console.error('Error fetching NVIDIA GPU stats:', error);
+    console.error('Error fetching GPU stats:', error);
     return NextResponse.json(
       {
         hasNvidiaSmi: false,
@@ -248,4 +428,3 @@ async function getGpuStats(isWindows: boolean) {
 
   return gpus;
 }
-
