@@ -1,5 +1,7 @@
 # Ostris AI Toolkit
 
+only edit 4 files in ui/src to support amd gpu in ui
+
 AI Toolkit is an easy to use all in one training suite for diffusion models. I try to support all the latest models on consumer grade hardware. Image and video models. It can be run as a GUI or CLI. It is designed to be easy to use but still have every feature imaginable. Free and open source.
 
 
