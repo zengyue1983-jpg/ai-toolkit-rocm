@@ -52,6 +52,7 @@ export interface CpuInfo {
 export interface GPUApiResponse {
   hasNvidiaSmi: boolean;
   isMac: boolean;
+  hasAmdGpu?: boolean;
   gpus: GpuInfo[];
   error?: string;
 }
@@ -294,6 +295,7 @@ export interface SelectOption {
   readonly value: string;
   readonly label: string;
 }
+
 export interface GroupedSelectOption {
   readonly label: string;
   readonly options: SelectOption[];
