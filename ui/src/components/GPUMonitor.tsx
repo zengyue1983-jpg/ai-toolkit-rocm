@@ -98,12 +98,21 @@ const GpuMonitor: React.FC = () => {
       );
     }
 
-    if (!gpuData.hasNvidiaSmi && !gpuData.isMac) {
+    // 修改：支持 AMD GPU (ROCm 7.2)
+    if (!gpuData.hasNvidiaSmi && !gpuData.isMac && !gpuData.hasAmdGpu) {
       return (
         <div className="bg-yellow-900 border border-yellow-700 text-yellow-300 px-4 py-3 rounded relative" role="alert">
-          <strong className="font-bold">No NVIDIA GPUs detected!</strong>
-          <span className="block sm:inline"> nvidia-smi is not available on this system.</span>
+          <strong className="font-bold">No Supported GPU Detected!</strong>
+          <span className="block sm:inline"> No NVIDIA GPU, AMD GPU (ROCm), or Apple Silicon GPU found on this system.</span>
           {gpuData.error && <p className="mt-2 text-sm">{gpuData.error}</p>}
+          <div className="mt-3 text-xs opacity-75">
+            <p>Supported GPU types:</p>
+            <ul className="list-disc list-inside mt-1">
+              <li>NVIDIA GPU (requires nvidia-smi)</li>
+              <li>AMD GPU (requires ROCm with amd-smi or rocm-smi)</li>
+              <li>Apple Silicon Mac (built-in GPU)</li>
+            </ul>
+          </div>
         </div>
       );
     }
@@ -111,7 +120,11 @@ const GpuMonitor: React.FC = () => {
     if (gpuData.gpus.length === 0) {
       return (
         <div className="bg-yellow-900 border border-yellow-700 text-yellow-300 px-4 py-3 rounded relative" role="alert">
-          <span className="block sm:inline">No GPUs found, but nvidia-smi is available.</span>
+          <strong className="font-bold">No GPUs Found!</strong>
+          <span className="block sm:inline"> GPU monitoring tools are available but no GPUs were detected.</span>
+          {gpuData.hasAmdGpu && (
+            <p className="mt-2 text-sm">AMD ROCm tools found, but no AMD GPUs detected. Check ROCm installation and GPU drivers.</p>
+          )}
         </div>
       );
     }
@@ -119,11 +132,32 @@ const GpuMonitor: React.FC = () => {
     const gridClass = getGridClasses(gpuData?.gpus?.length || 1);
 
     return (
-      <div className={`grid ${gridClass} gap-3`}>
-        {gpuData.gpus.map((gpu, idx) => (
-          <GPUWidget key={idx} gpu={gpu} />
-        ))}
-      </div>
+      <>
+        {/* 显示 GPU 类型标签 */}
+        <div className="mb-3 flex gap-2">
+          {gpuData.hasNvidiaSmi && (
+            <span className="px-2 py-1 bg-green-900 text-green-300 text-xs rounded-full">
+              NVIDIA GPU
+            </span>
+          )}
+          {gpuData.hasAmdGpu && (
+            <span className="px-2 py-1 bg-red-900 text-red-300 text-xs rounded-full">
+              AMD GPU (ROCm)
+            </span>
+          )}
+          {gpuData.isMac && (
+            <span className="px-2 py-1 bg-blue-900 text-blue-300 text-xs rounded-full">
+              Apple Silicon
+            </span>
+          )}
+        </div>
+        
+        <div className={`grid ${gridClass} gap-3`}>
+          {gpuData.gpus.map((gpu, idx) => (
+            <GPUWidget key={idx} gpu={gpu} />
+          ))}
+        </div>
+      </>
     );
   }, [loading, gpuData, error]);
 
@@ -131,7 +165,12 @@ const GpuMonitor: React.FC = () => {
     <div className="w-full">
       <div className="flex justify-between items-center mb-2">
         <h1 className="text-md">GPU Monitor</h1>
-        <div className="text-xs text-gray-500">Last updated: {lastUpdated?.toLocaleTimeString()}</div>
+        <div className="text-xs text-gray-500">
+          Last updated: {lastUpdated?.toLocaleTimeString()}
+          {gpuData?.hasAmdGpu && (
+            <span className="ml-2 text-red-400">• ROCm 7.2</span>
+          )}
+        </div>
       </div>
       {content}
     </div>
